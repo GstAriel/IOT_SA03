@@ -1,0 +1,86 @@
+#include "WiFi.h"
+#include "HTTPClient.h"
+#include "PubSubClient.h"
+#include "DHTesp.h"
+#include "Arduino_JSON.h"
+
+const char* ssid = "Wokwi-GUEST";
+const char* senha = "";
+const String url = "https://api.thingspeak.com/update?api_key=FCF71ZCTBVLPPRII&";
+
+//Configuração do mqtt broker
+int port = 1883;
+const char* server = "broker.hivemq.com";
+const char* topico = "mqtt_iot";
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+DHTesp dhtSensor;
+HTTPClient http;
+JSONVar data;
+
+void setup(){
+  Serial.begin(115200);
+  Serial.println("INICIANDO SETUP");
+
+  WiFi.begin(ssid, senha);
+  while (WiFi.status() != WL_CONNECTED){
+    delay(1500);
+    Serial.print(".");
+  }
+  Serial.println("Conectado a rede Wifi");
+  //Conexão com broker
+  Serial.println("Conectando ao broker...");
+  mqttClient.setServer(server, port);
+  char* clientId= "clientID-esp32_adaswedf";
+  mqttClient.connect(clientId);
+  mqttClient.subscribe(topico);
+  while(!mqttClient.connected()){
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Broker conectado");
+    // Ligação dos pinos com o sensor
+  dhtSensor.setup(13, DHTesp::DHT22);
+  pinMode(15, OUTPUT);
+  pinMode(2, OUTPUT);
+  Serial.println("FINALIZANDO SETUP");
+}
+void loop(){
+  Serial.println("-----------------------------");
+  //atuadores(LED)
+  delay(8000);
+  digitalWrite(15, HIGH);
+  digitalWrite(2, LOW);
+
+  //Captura de temperatura e umidade
+  float temp = dhtSensor.getTemperature();
+  float humid = dhtSensor.getHumidity();
+  data["umidade"] = humid;
+  data["temperatura"] = temp;
+  String jsonString =JSON.stringify(data);
+//Enviando dados via HTML para Thingspeak
+  String path = url + "field1=" + String(temp) + "&field2=" + String(humid);
+  http.begin(path);
+  int httpCode = http.GET();
+  String payload = http.getString();
+  Serial.println("httpCode: " + String(httpCode));
+  Serial.println("Payload: " + String(payload));
+  Serial.println("Temperatura: " + String(temp) + "  | Umidade: " + String(humid) + "%");
+
+//Enviando dados via MQTT para Broker + PC
+  boolean dados = mqttClient.publish(topico, jsonString.c_str());
+  if (!dados){
+    Serial.println("Problemas ao enviar dados");
+    mqttClient.connect("esp32_vIwc2Tz6G");
+    mqttClient.subscribe(topico);
+  } else {
+    Serial.println("Mensagem enviada com sucesso");
+    Serial.println("-----------------------------");
+  }
+  //atuadores(LED)
+  delay(8000);
+  digitalWrite(15, LOW);
+  digitalWrite(2, HIGH);
+
+}
